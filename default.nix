@@ -7,6 +7,74 @@ let
   # Program to formatter mapping
   programs = import ./programs.nix;
 
+  mkFormatterModule =
+    {
+      name,
+      package ? name,
+      args ? [ ],
+      includes ? [ ],
+      excludes ? [ ],
+    }:
+    {
+      pkgs,
+      lib,
+      config,
+      ...
+    }:
+    let
+      cfg = config.programs.${name};
+    in
+    {
+      options.programs.${name} = {
+        enable = lib.mkEnableOption name;
+
+        package = lib.mkPackageOption pkgs package { };
+
+        args = lib.mkOption {
+          description = "Arguments to pass";
+          type = lib.types.listOf lib.types.str;
+          default = args;
+        };
+
+        includes = lib.mkOption {
+          description = "Path / file patterns to include";
+          type = lib.types.listOf lib.types.str;
+          default = includes;
+        };
+
+        excludes = lib.mkOption {
+          description = "Path / file patterns to exclude";
+          type = lib.types.listOf lib.types.str;
+          default = excludes;
+        };
+
+        priority = lib.mkOption {
+          description = "Priority";
+          type = lib.types.nullOr lib.types.int;
+          default = null;
+        };
+      };
+
+      config = lib.mkIf cfg.enable {
+        settings.formatter.${name} =
+          {
+            command = lib.mkDefault cfg.package;
+          }
+          // (lib.optionalAttrs (cfg.args != [ ]) {
+            options = cfg.args;
+          })
+          // (lib.optionalAttrs (cfg.includes != [ ]) {
+            inherit (cfg) includes;
+          })
+          // (lib.optionalAttrs (cfg.excludes != [ ]) {
+            inherit (cfg) excludes;
+          })
+          // (lib.optionalAttrs (cfg.priority != null) {
+            inherit (cfg) priority;
+          });
+      };
+    };
+
   all-modules =
     nixpkgs:
     [
@@ -54,6 +122,9 @@ let
     nixpkgs: configuration:
     nixpkgs.lib.evalModules {
       modules = all-modules nixpkgs ++ [ configuration ];
+      specialArgs = {
+        inherit mkFormatterModule;
+      };
     };
 
   # Returns a treefmt.toml generated from the passed configuration.
