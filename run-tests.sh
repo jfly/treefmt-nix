@@ -3,7 +3,7 @@ set -euo pipefail
 
 echo
 echo Running tests...
-nix flake check ./tests --recreate-lock-file --show-trace
+nix flake check ./checks --recreate-lock-file --show-trace
 
 echo
 echo Checking that the flake.parts docs build...

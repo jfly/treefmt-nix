@@ -124,9 +124,20 @@ in
       description = ''
         File to look for to determine the root of the project in the
         build.wrapper.
+        Mutually exclusive with {option}`projectRoot`.
       '';
-      default = ".git/config";
-      type = types.str;
+      default = if config.projectRoot == null then ".git/config" else null;
+      type = types.nullOr types.str;
+    };
+
+    projectRoot = mkOption {
+      description = ''
+        Path to the root of the project on which treefmt operates
+
+        Mutually exclusive with {option}`projectRootFile`.
+      '';
+      type = types.nullOr types.path;
+      default = null;
     };
 
     enableDefaultExcludes = mkOption {
@@ -173,38 +184,45 @@ in
         defaultText = lib.literalMD "wrapped `treefmt` command";
         default =
           let
-            code =
-              if builtins.compareVersions "2.0.0-rc4" config.package.version == 1 then
-                ''
-                  set -euo pipefail
-                  find_up() {
-                    ancestors=()
-                    while true; do
-                      if [[ -f $1 ]]; then
-                        echo "$PWD"
-                        exit 0
-                      fi
-                      ancestors+=("$PWD")
-                      if [[ $PWD == / ]] || [[ $PWD == // ]]; then
-                        echo "ERROR: Unable to locate the projectRootFile ($1) in any of: ''${ancestors[*]@Q}" >&2
-                        exit 1
-                      fi
-                      cd ..
-                    done
-                  }
-                  tree_root=$(find_up "${config.projectRootFile}")
-                  exec ${config.package}/bin/treefmt --config-file ${config.build.configFile} "$@" --tree-root "$tree_root"
-                ''
-              # treefmt-2.0.0-rc4 and later support the tree-root-file option
+            # treefmt-2.0.0-rc4 and later support the tree-root-file option
+            supportsTreeRootFile = builtins.compareVersions config.package.version "2.0.0-rc4" >= 0;
+            treeRootOption =
+              if config.projectRoot != null && config.projectRootFile != null then
+                throw "Cannot specify both `projectRoot` and `projectRootFile`"
+              else if config.projectRoot != null then
+                "--tree-root=${config.projectRoot}"
+              else if config.projectRootFile != null then
+                if supportsTreeRootFile then
+                  "--tree-root-file=${config.projectRootFile}"
+                else
+                  ''--tree-root="$(find_up "${config.projectRootFile}")"''
               else
-                ''
-                  set -euo pipefail
-                  unset PRJ_ROOT
-                  exec ${config.package}/bin/treefmt \
-                    --config-file=${config.build.configFile} \
-                    --tree-root-file=${config.projectRootFile} \
-                    "$@"
-                '';
+                throw "Must specify one of `projectRoot` or `projectRootFile`";
+            code =
+              ''
+                set -euo pipefail
+                unset PRJ_ROOT
+              ''
+              + (lib.optionalString (!supportsTreeRootFile) ''
+                find_up() {
+                  ancestors=()
+                  while true; do
+                    if [[ -f $1 ]]; then
+                      echo "$PWD"
+                      exit 0
+                    fi
+                    ancestors+=("$PWD")
+                    if [[ $PWD == / ]] || [[ $PWD == // ]]; then
+                      echo "ERROR: Unable to locate the projectRootFile ($1) in any of: ''${ancestors[*]@Q}" >&2
+                      exit 1
+                    fi
+                    cd ..
+                  done
+                }
+              '')
+              + ''
+                exec ${config.package}/bin/treefmt --config-file=${config.build.configFile} ${treeRootOption} "$@"
+              '';
             x = pkgs.writeShellScriptBin "treefmt" code;
           in
           (x // { meta = config.package.meta // x.meta; });
