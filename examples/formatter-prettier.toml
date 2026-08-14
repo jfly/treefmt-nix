@@ -21,3 +21,4 @@ includes = [
     "*.yml",
 ]
 options = ["--write"]
+stdin-options = ["--stdin-filepath", "$path"]
